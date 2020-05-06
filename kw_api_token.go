@@ -44,17 +44,43 @@ func (K *KWAPI) Authenticate(username string) (*KWSession, error) {
 		}
 	}
 
-	Stdout("\n*** %s Authentication ***\n\n", K.Server)
-	for {
-		username = strings.ToLower(ForInput("Username: "))
-		password := ForSecret("Password: ")
-		Stdout("\n\r")
+	if K.secrets.signature_key == nil {
+		Stdout("\n*** %s Authentication ***\n\n", K.Server)
+		for {
+			if username == NONE {
+				username = strings.ToLower(ForInput("User: "))
+			} else {
+				Stdout("User: %s", username)
+			}
+			password := ForSecret("Password: ")
+			Stdout("\n\r")
 
-		auth, err := K.newToken(username, password)
-		if err != nil {
-			Err(fmt.Sprintf("%s\n\n", err.Error()))
-			continue
-		} else {
+			auth, err := K.newToken(username, password)
+			if err != nil {
+				Err(fmt.Sprintf("%s\n\n", err.Error()))
+				continue
+			} else {
+				session := K.Session(username)
+				if err := K.TokenStore.Save(username, auth); err != nil {
+					return &session, err
+				}
+				return &session, nil
+			}
+		}
+	} else {
+		for {
+			if username == NONE {
+				Stdout("\n*** %s Authentication ***\n\n", K.Server)
+				username = strings.ToLower(ForInput("User: "))
+			}
+
+			auth, err := K.newToken(username, NONE)
+			if err != nil {
+				username = NONE
+				Err(fmt.Sprintf("%s\n\n", err.Error()))
+				continue
+			}
+
 			session := K.Session(username)
 			if err := K.TokenStore.Save(username, auth); err != nil {
 				return &session, err

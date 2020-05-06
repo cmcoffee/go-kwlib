@@ -43,6 +43,8 @@ var (
 	ForInput   = ask.ForInput
 	Exit       = nfo.Exit
 	PleaseWait = nfo.PleaseWait
+	Stderr     = nfo.Stderr
+	Confirm    = nfo.Confirm
 )
 
 // Atomic BitFlag
