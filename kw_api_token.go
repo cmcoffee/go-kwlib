@@ -29,7 +29,7 @@ func (K *KWAPI) Authenticate(username string) (*KWSession, error) {
 			if token.Expires < time.Now().Add(time.Duration(5*time.Minute)).Unix() {
 				// First attempt to use a refresh token if there is one.
 				token, err = K.refreshToken(username, token)
-				if err != nil {
+				if err != nil && K.secrets.signature_key == nil {
 					Notice("Unable to use refresh token, must reauthenticate for new access token: %s", err.Error())
 					token = nil
 				} else {
@@ -57,6 +57,7 @@ func (K *KWAPI) Authenticate(username string) (*KWSession, error) {
 
 			auth, err := K.newToken(username, password)
 			if err != nil {
+				username = NONE
 				Err(fmt.Sprintf("%s\n\n", err.Error()))
 				continue
 			} else {
@@ -70,13 +71,14 @@ func (K *KWAPI) Authenticate(username string) (*KWSession, error) {
 	} else {
 		for {
 			if username == NONE {
-				Stdout("\n*** %s Authentication ***\n\n", K.Server)
+				Stdout("\n*** %s API Configuration ***\n\n", K.Server)
 				username = strings.ToLower(ForInput("User: "))
 			}
 
 			auth, err := K.newToken(username, NONE)
 			if err != nil {
 				username = NONE
+				Stdout("\n")
 				Err(fmt.Sprintf("%s\n\n", err.Error()))
 				continue
 			}
@@ -223,8 +225,7 @@ func (K *KWAPI) newToken(username, password string) (auth *KWAuth, err error) {
 	postform := &url.Values{
 		"client_id":     {client_id},
 		"client_secret": {K.secrets.decrypt(K.secrets.client_secret_key)},
-		"RedirectURI":   {K.RedirectURI},
-		//"scope":         {"*/*/*"},
+		"redirect_uri":   {K.RedirectURI},
 	}
 
 	if password != NONE {
@@ -256,7 +257,7 @@ func (K *KWAPI) newToken(username, password string) (auth *KWAuth, err error) {
 	if K.Snoop {
 		Stdout("\n[kiteworks]: %s\n--> ACTION: \"POST\" PATH: \"%s\"", username, path)
 		for k, v := range *postform {
-			if k == "grant_type" || k == "RedirectURI" || k == "scope" {
+			if k == "grant_type" || k == "redirect_uri" || k == "scope" {
 				Stdout("\\-> POST PARAM: %s VALUE: %s", k, v)
 			} else {
 				Stdout("\\-> POST PARAM: %s VALUE: [HIDDEN]", k)

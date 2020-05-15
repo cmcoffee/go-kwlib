@@ -101,9 +101,10 @@ func (W *web_downloader) Seek(offset int64, whence int) (int64, error) {
 }
 
 // Perform External Download from a remote request.
-func (S *KWSession) ExtDownload(req *http.Request) io.ReadSeeker {
+func (S *KWSession) WebDownload(req *http.Request) io.ReadSeeker {
 	req.Header.Set("Content-Type", "application/octet-stream")
-	if S.AgentString == "" {
+	
+	if S.AgentString == NONE {
 		req.Header.Set("User-Agent", "kwlib/1.0")
 	} else {
 		req.Header.Set("User-Agent", S.AgentString)
@@ -421,7 +422,7 @@ func (s KWSession) Download(file_id int) (io.ReadSeeker, error) {
 		return nil, err
 	}
 
-	dl := s.ExtDownload(req)
+	dl := s.WebDownload(req)
 
 	transfer := &transfer_reader{
 		0,

@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"sync"
 )
 
 type KWAPI struct {
@@ -32,6 +33,18 @@ type KWAPI struct {
 	Retries        uint          // Max retries on a failed call
 	TokenStore     TokenStore    // TokenStore for reading and writing auth tokens securely.
 	secrets        kwapi_secrets // Encrypted config options such as signature token, client secret key.
+	limiter        chan struct{} // Implements a limiter for API calls to appliance.
+	limiter_lock   sync.RWMutex
+}
+
+// Configures maximum number of simultaneous api calls.
+func (K *KWAPI) SetLimiter(max_calls int) {
+	K.limiter_lock.Lock()
+	defer K.limiter_lock.Unlock()
+	K.limiter = make(chan struct{}, max_calls)
+	for i := 0; i < max_calls; i++ {
+		K.limiter<-struct{}{}
+	}
 }
 
 // Tests TokenStore, creates one if missing.
@@ -152,6 +165,14 @@ type KWAPIClient struct {
 }
 
 func (c *KWAPIClient) Do(req *http.Request) (resp *http.Response, err error) {
+	c.session.limiter_lock.RLock()
+	defer c.session.limiter_lock.RUnlock()
+
+	if c.session.limiter != nil {
+		<-c.session.limiter
+		defer func () { c.session.limiter<-struct{}{} }()
+	}
+
 	resp, err = c.Client.Do(req)
 	if err != nil {
 		return nil, err
@@ -174,6 +195,7 @@ func (K *KWAPI) ClientSecret(client_secret_key string) {
 // kiteworks Auth token.
 type KWAuth struct {
 	AccessToken  string `json:"access_token"`
+	Scope        string `json:"scope"`
 	RefreshToken string `json:"refresh_token"`
 	Expires      int64  `json:"expires_in"`
 }
@@ -253,7 +275,7 @@ func (K *KWAPI) decodeJSON(resp *http.Response, output interface{}) (err error) 
 			err = fmt.Errorf("I cannot understand what %s is saying: %s", K.Server, err.Error())
 			return
 		} else {
-			err = fmt.Errorf("I cannot understand what %s is saying. (Try running %s --snoop): %s", K.Server, os.Args[0], err.Error())
+			err = fmt.Errorf("I cannot understand what %s is saying. (Try enabling snoop): %s", K.Server, err.Error())
 			return
 		}
 	}

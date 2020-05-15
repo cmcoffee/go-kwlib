@@ -9,8 +9,9 @@ import (
 	"crypto/rand"
 	"fmt"
 	"github.com/cmcoffee/go-ask"
-	"github.com/cmcoffee/go-kvlite"
+	"github.com/cmcoffee/go-kvliter"
 	"github.com/cmcoffee/go-nfo"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,6 @@ func init() {
 
 // Import from go-nfo.
 var (
-	LogFile    = nfo.File
 	Log        = nfo.Log
 	Fatal      = nfo.Fatal
 	Notice     = nfo.Notice
@@ -45,6 +45,8 @@ var (
 	PleaseWait = nfo.PleaseWait
 	Stderr     = nfo.Stderr
 	Confirm    = nfo.Confirm
+	HideTS     = nfo.HideTS
+	ShowTS     = nfo.ShowTS
 )
 
 // Atomic BitFlag
@@ -94,63 +96,103 @@ var Path = filepath.Clean
 
 // Wrapper around go-kvlite.
 type Database struct {
-	db *kvlite.Store
+	db kvliter.Store
 }
 
 // Opens go-kvlite sqlite database.
-func OpenDatabase(file string, padlock ...[]byte) (*Database, error) {
-	db, err := kvlite.Open(file, padlock...)
+func OpenDatabase(file string, padlock ...byte) (*Database, error) {
+	db, err := kvliter.Open(file, padlock...)
 	if err != nil {
 		return nil, err
 	}
 	return &Database{db}, nil
 }
 
+// Opens go-kvlite database using mac address for lock.
+func SecureDatabase(file string) (*Database, error) {
+	// Provides us the mac address of the first interface.
+	get_mac_addr := func() []byte {
+		ifaces, err := net.Interfaces()
+		Critical(err)
+
+		for _, v := range ifaces {
+			if len(v.HardwareAddr) == 0 {
+				continue
+			}
+			return v.HardwareAddr
+		}
+		return nil
+	}
+
+	db, err := kvliter.Open(file, get_mac_addr()[0:]...)
+	if err != nil {
+		if err == kvliter.ErrBadPadlock {
+			Notice("Hardware changes detected, you will need to reauthenticate.")
+			if err := kvliter.CryptReset(file); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
+		db, err = kvliter.Open(file, get_mac_addr()[0:]...)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &Database{db}, nil
+}
+
 // Open a memory-only go-kvlite store.
 func OpenCache() *Database {
-	db, err := kvlite.MemStore()
-	Critical(err)
+	db := kvliter.MemStore()
 	return &Database{db}
 }
 
 // DB Wrappers to perform fatal error checks on each call.
-func (d Database) Truncate(table string) {
-	Critical(d.db.Truncate(table))
+func (d Database) Drop(table string) {
+	Critical(d.db.Drop(table))
 }
 
 // Encrypt value to go-kvlie, fatal on error.
-func (d Database) CryptSet(table string, key, value interface{}) {
+func (d Database) CryptSet(table, key string, value interface{}) {
 	Critical(d.db.CryptSet(table, key, value))
 }
 
 // Save value to go-kvlite.
-func (d Database) Set(table string, key, value interface{}) {
+func (d Database) Set(table, key string, value interface{}) {
 	Critical(d.db.Set(table, key, value))
 }
 
 // Retrieve value from go-kvlite.
-func (d Database) Get(table string, key, output interface{}) bool {
+func (d Database) Get(table, key string, output interface{}) bool {
 	found, err := d.db.Get(table, key, output)
 	Critical(err)
 	return found
 }
 
 // List keys in go-kvlite.
-func (d Database) ListKeys(table string) []string {
-	keylist, err := d.db.ListKeys(table)
+func (d Database) Keys(table string) []string {
+	keylist, err := d.db.Keys(table)
 	Critical(err)
 	return keylist
 }
 
-// List numeric keys in go-kvlite.
-func (d Database) ListNKeys(table string) []int {
-	keylist, err := d.db.ListNKeys(table)
+// Count keys in table.
+func (d Database) CountKeys(table string) int {
+	count, err := d.db.CountKeys(table)
 	Critical(err)
-	return keylist
+	return count
+}
+
+// List Tables in DB
+func (d Database) Tables() []string {
+	tables, err := d.db.Tables()
+	Critical(err)
+	return tables
 }
 
 // Delete value from go-kvlite.
-func (d Database) Unset(table string, key interface{}) {
+func (d Database) Unset(table, key string) {
 	Critical(d.db.Unset(table, key))
 }
 
