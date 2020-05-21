@@ -2,6 +2,7 @@ package kwlib
 
 import (
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,12 +12,12 @@ import (
 var transferDisplay struct {
 	update_lock sync.RWMutex
 	display     int64
-	monitors    []*TMonitor
+	monitors    []*tmon
 }
 
 // Add Transfer to transferDisplay.
 // Parameters are "name" displayed for file transfer, "limit_sz" for when to pause transfer (aka between calls/chunks), and "total_sz" the total size of the transfer.
-func TransferMonitor(name string, total_sz int64) *TMonitor {
+func TransferMonitor(name string, total_size int64, source io.ReadSeeker) io.ReadSeeker {
 	transferDisplay.update_lock.Lock()
 	defer transferDisplay.update_lock.Unlock()
 
@@ -31,15 +32,16 @@ func TransferMonitor(name string, total_sz int64) *TMonitor {
 		}
 	}
 
-	tm := &TMonitor{
+	tm := &tmon{
 		flag:       trans_active,
 		name:       name,
 		short_name: string(short_name),
-		total_size: total_sz,
+		total_size: total_size,
 		transfered: 0,
 		offset:     0,
 		rate:       "0.0bps",
 		start_time: time.Now(),
+		source:     source,
 	}
 
 	transferDisplay.monitors = append(transferDisplay.monitors, tm)
@@ -53,7 +55,7 @@ func TransferMonitor(name string, total_sz int64) *TMonitor {
 			for {
 				transferDisplay.update_lock.Lock()
 
-				var monitors []*TMonitor
+				var monitors []*tmon
 
 				// Clean up transfers.
 				for i := len(transferDisplay.monitors) - 1; i >= 0; i-- {
@@ -65,7 +67,7 @@ func TransferMonitor(name string, total_sz int64) *TMonitor {
 				}
 
 				if len(transferDisplay.monitors) == 0 {
-					PleaseWait.Show()
+					//PleaseWait.Show()
 					return
 				}
 
@@ -90,13 +92,26 @@ func TransferMonitor(name string, total_sz int64) *TMonitor {
 	return tm
 }
 
-// Removes TMonitor from transferDisplay.
-func (tm *TMonitor) Close() {
-	if tm.flag.Has(trans_closed) {
-		return
+// Wrapper Seeker
+func (tm *tmon) Seek(offset int64, whence int) (int64, error) {
+	o, err := tm.source.Seek(offset, whence)
+	tm.transfered = o
+	tm.offset = o
+	return o, err
+}
+
+// Wrapped Reader
+func (tm *tmon) Read(p []byte) (n int, err error) {
+	n, err = tm.source.Read(p)
+	atomic.StoreInt64(&tm.transfered, atomic.LoadInt64(&tm.transfered)+int64(n))
+	if err != nil {
+		if tm.flag.Has(trans_closed) {
+			return
+		}
+		tm.showTransfer(true)
+		tm.flag.Set(trans_closed)
 	}
-	tm.showTransfer(true)
-	tm.flag.Set(trans_closed)
+	return
 }
 
 const (
@@ -106,7 +121,7 @@ const (
 )
 
 // Transfer Monitor
-type TMonitor struct {
+type tmon struct {
 	flag       BitFlag
 	name       string
 	short_name string
@@ -116,40 +131,37 @@ type TMonitor struct {
 	rate       string
 	chunk_size int64
 	start_time time.Time
-}
-
-// Update transfered bytes
-func (t *TMonitor) RecordTransfer(current_sz int) {
-	atomic.StoreInt64(&t.transfered, atomic.LoadInt64(&t.transfered)+int64(current_sz))
-}
-
-// Sets the offset to the size already tansfered.
-func (t *TMonitor) Offset(current_sz int64) {
-	t.transfered = current_sz
-	t.offset = t.transfered
+	source     io.ReadSeeker
 }
 
 // Outputs progress of TMonitor.
-func (t *TMonitor) showTransfer(log bool) {
+func (t *tmon) showTransfer(log bool) {
 	transfered := atomic.LoadInt64(&t.transfered)
 	rate := t.showRate()
 
-	if t.total_size > -1 {
-		if transfered <= t.total_size && !log {
-			Flash(fmt.Sprintf("[%s] %s %s (%s/%s)", t.short_name, rate, t.progressBar(), HumanSize(transfered), HumanSize(t.total_size)))
-		}
-		if log {
-			t.flag.Unset(trans_active)
-			Log(fmt.Sprintf("[%s] %s %s (%s/%s)", t.name, rate, t.progressBar(), HumanSize(transfered), HumanSize(t.total_size)))
-		}
-	} else {
+	var (
+		output func(vars ...interface{})
+		name   string
+	)
+
+	if log {
 		t.flag.Unset(trans_active)
-		Log(fmt.Sprintf("[%s] %s (%s)", t.short_name, rate, HumanSize(transfered)))
+		name = t.name
+		output = Log
+	} else {
+		name = t.short_name
+		output = Flash
+	}
+
+	if t.total_size > -1 {
+		output("[%s] %s %s (%s/%s)", name, rate, t.progressBar(), HumanSize(transfered), HumanSize(t.total_size))
+	} else {
+		output("[%s] %s (%s)", t.name, rate, HumanSize(transfered))
 	}
 }
 
 // Provides average rate of transfer.
-func (t *TMonitor) showRate() string {
+func (t *tmon) showRate() string {
 
 	transfered := atomic.LoadInt64(&t.transfered)
 	if transfered == 0 || t.flag.Has(trans_complete) {
@@ -191,7 +203,7 @@ func (t *TMonitor) showRate() string {
 }
 
 // Produces progress bar for information on update.
-func (t *TMonitor) progressBar() string {
+func (t *tmon) progressBar() string {
 	num := int((float64(atomic.LoadInt64(&t.transfered)) / float64(t.total_size)) * 100)
 	if t.total_size == 0 {
 		num = 100

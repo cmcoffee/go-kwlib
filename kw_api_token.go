@@ -29,8 +29,10 @@ func (K *KWAPI) Authenticate(username string) (*KWSession, error) {
 			if token.Expires < time.Now().Add(time.Duration(5*time.Minute)).Unix() {
 				// First attempt to use a refresh token if there is one.
 				token, err = K.refreshToken(username, token)
-				if err != nil && K.secrets.signature_key == nil {
-					Notice("Unable to use refresh token, must reauthenticate for new access token: %s", err.Error())
+				if err != nil {
+					if K.secrets.signature_key == nil {
+						Notice("Unable to use refresh token, must reauthenticate for new access token: %s", err.Error())
+					}
 					token = nil
 				} else {
 					if err := K.TokenStore.Save(username, token); err != nil {
@@ -225,7 +227,7 @@ func (K *KWAPI) newToken(username, password string) (auth *KWAuth, err error) {
 	postform := &url.Values{
 		"client_id":     {client_id},
 		"client_secret": {K.secrets.decrypt(K.secrets.client_secret_key)},
-		"redirect_uri":   {K.RedirectURI},
+		"redirect_uri":  {K.RedirectURI},
 	}
 
 	if password != NONE {

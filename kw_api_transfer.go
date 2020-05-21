@@ -103,7 +103,7 @@ func (W *web_downloader) Seek(offset int64, whence int) (int64, error) {
 // Perform External Download from a remote request.
 func (S *KWSession) WebDownload(req *http.Request) io.ReadSeeker {
 	req.Header.Set("Content-Type", "application/octet-stream")
-	
+
 	if S.AgentString == NONE {
 		req.Header.Set("User-Agent", "kwlib/1.0")
 	} else {
@@ -162,7 +162,6 @@ type streamReadCloser struct {
 	source    io.Reader
 	eof       bool
 	f_writer  io.Writer
-	tm        *TMonitor
 	*multipart.Writer
 }
 
@@ -201,7 +200,6 @@ func (s *streamReadCloser) Read(p []byte) (n int, err error) {
 		if err != nil {
 			return -1, err
 		}
-		s.tm.RecordTransfer(n)
 		if s.eof {
 			s.Close()
 		}
@@ -214,7 +212,7 @@ func (s *streamReadCloser) Read(p []byte) (n int, err error) {
 }
 
 // Uploads file from specific local path, uploads in chunks, allows resume.
-func (s KWSession) Upload(filename string, upload_id int, source io.ReadSeeker) (int, error) {
+func (s KWSession) Upload(filename string, upload_id int, source_reader io.ReadSeeker) (int, error) {
 	type upload_data struct {
 		ID             int    `json:"id"`
 		TotalSize      int64  `json:"totalSize"`
@@ -254,9 +252,11 @@ func (s KWSession) Upload(filename string, upload_id int, source io.ReadSeeker) 
 	ChunkSize := upload_record.TotalSize / upload_record.TotalChunks
 	ChunkIndex := upload_record.UploadedChunks
 
+	src := TransferMonitor(filename, total_bytes, source_reader)
+
 	if ChunkIndex > 0 {
 		if upload_record.UploadedSize > 0 && upload_record.UploadedChunks > 0 {
-			if _, err = source.Seek(ChunkSize*ChunkIndex, 0); err != nil {
+			if _, err = src.Seek(ChunkSize*ChunkIndex, 0); err != nil {
 				return -1, err
 			}
 		}
@@ -265,11 +265,6 @@ func (s KWSession) Upload(filename string, upload_id int, source io.ReadSeeker) 
 	transfered_bytes := upload_record.UploadedSize
 
 	w_buff := new(bytes.Buffer)
-
-	tm := TransferMonitor(filename, total_bytes)
-	defer tm.Close()
-
-	tm.Offset(transfered_bytes)
 
 	var resp_data struct {
 		ID int `json:"id"`
@@ -339,10 +334,9 @@ func (s KWSession) Upload(filename string, upload_id int, source io.ReadSeeker) 
 			0,
 			make([]byte, 4096),
 			w_buff,
-			iotimeout.NewReader(source, s.RequestTimeout),
+			iotimeout.NewReader(src, s.RequestTimeout),
 			false,
 			f_writer,
-			tm,
 			w,
 		}
 
@@ -373,32 +367,6 @@ func (s KWSession) Upload(filename string, upload_id int, source io.ReadSeeker) 
 	return resp_data.ID, nil
 }
 
-// Pass-thru reader for reporting.
-type transfer_reader struct {
-	exit int32
-	src  io.ReadSeeker
-	tm   *TMonitor
-}
-
-func (T *transfer_reader) Seek(offset int64, whence int) (int64, error) {
-	T.tm.Offset(offset)
-	return T.src.Seek(offset, whence)
-}
-
-func (T *transfer_reader) Read(p []byte) (n int, err error) {
-	n, err = T.src.Read(p)
-	T.tm.RecordTransfer(n)
-	if err != nil {
-		defer T.tm.Close()
-	}
-	return
-}
-
-func (T *transfer_reader) Close() (err error) {
-	T.tm.Close()
-	return nil
-}
-
 // Downloads a file to a specific path
 func (s KWSession) Download(file_id int) (io.ReadSeeker, error) {
 	var file_info struct {
@@ -422,13 +390,5 @@ func (s KWSession) Download(file_id int) (io.ReadSeeker, error) {
 		return nil, err
 	}
 
-	dl := s.WebDownload(req)
-
-	transfer := &transfer_reader{
-		0,
-		dl,
-		TransferMonitor(filename, total_bytes),
-	}
-
-	return transfer, nil
+	return TransferMonitor(filename, total_bytes, s.WebDownload(req)), nil
 }

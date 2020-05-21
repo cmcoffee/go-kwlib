@@ -15,8 +15,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 	"sync"
+	"time"
 )
 
 type KWAPI struct {
@@ -43,7 +43,7 @@ func (K *KWAPI) SetLimiter(max_calls int) {
 	defer K.limiter_lock.Unlock()
 	K.limiter = make(chan struct{}, max_calls)
 	for i := 0; i < max_calls; i++ {
-		K.limiter<-struct{}{}
+		K.limiter <- struct{}{}
 	}
 }
 
@@ -170,7 +170,7 @@ func (c *KWAPIClient) Do(req *http.Request) (resp *http.Response, err error) {
 
 	if c.session.limiter != nil {
 		<-c.session.limiter
-		defer func () { c.session.limiter<-struct{}{} }()
+		defer func() { c.session.limiter <- struct{}{} }()
 	}
 
 	resp, err = c.Client.Do(req)
