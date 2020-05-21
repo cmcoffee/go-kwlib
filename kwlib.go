@@ -46,8 +46,13 @@ var (
 	Stderr     = nfo.Stderr
 	Confirm    = nfo.Confirm
 	HideTS     = nfo.HideTS
-	ShowTS     = nfo.ShowTS
+	LocalDefer = nfo.LocalDefer
 )
+
+func ShowTS() {
+	nfo.ShowTS()
+	nfo.SetTimestamp(nfo.AUX, false)
+}
 
 // Atomic BitFlag
 type BitFlag int64
