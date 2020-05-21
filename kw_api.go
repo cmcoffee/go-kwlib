@@ -440,7 +440,7 @@ func (s KWSession) Call(api_req APIRequest) (err error) {
 		client := s.NewClient()
 		resp, err = client.Do(req)
 		if err != nil && KWAPIError(err, ERR_INTERNAL_SERVER_ERROR|TOKEN_ERR) {
-			Debug("(CALL ERROR) %s -> %s: %s (%d/%d)", s, api_req.Path, err.Error(), i+1, s.Retries+1)
+			Debug("(CALL ERROR) %s -> %s: %s (%d/%d)", s.Username, api_req.Path, err.Error(), i+1, s.Retries+1)
 			if err := reAuth(&s, req, err); err != nil {
 				return err
 			}
@@ -452,7 +452,7 @@ func (s KWSession) Call(api_req APIRequest) (err error) {
 
 		err = s.decodeJSON(resp, api_req.Output)
 		if err != nil && KWAPIError(err, ERR_INTERNAL_SERVER_ERROR|TOKEN_ERR) {
-			Debug("(CALL ERROR) %s -> %s: %s (%d/%d)", s, api_req.Path, err.Error(), i+1, s.Retries+1)
+			Debug("(CALL ERROR) %s -> %s: %s (%d/%d)", s.Username, api_req.Path, err.Error(), i+1, s.Retries+1)
 			if err := reAuth(&s, req, err); err != nil {
 				return err
 			}

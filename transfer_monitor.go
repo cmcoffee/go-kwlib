@@ -15,9 +15,15 @@ var transferDisplay struct {
 	monitors    []*tmon
 }
 
+type TMon interface {
+	Seek(offset int64, whence int) (int64, error)
+	Read(p []byte) (n int, err error)
+	Abort()
+}
+
 // Add Transfer to transferDisplay.
 // Parameters are "name" displayed for file transfer, "limit_sz" for when to pause transfer (aka between calls/chunks), and "total_sz" the total size of the transfer.
-func TransferMonitor(name string, total_size int64, source io.ReadSeeker) io.ReadSeeker {
+func TransferMonitor(name string, total_size int64, source io.ReadSeeker) TMon {
 	transferDisplay.update_lock.Lock()
 	defer transferDisplay.update_lock.Unlock()
 
@@ -67,7 +73,7 @@ func TransferMonitor(name string, total_size int64, source io.ReadSeeker) io.Rea
 				}
 
 				if len(transferDisplay.monitors) == 0 {
-					//PleaseWait.Show()
+					PleaseWait.Show()
 					return
 				}
 
@@ -112,6 +118,13 @@ func (tm *tmon) Read(p []byte) (n int, err error) {
 		tm.flag.Set(trans_closed)
 	}
 	return
+}
+
+func (tm *tmon) Abort() {
+	if tm.flag.Has(trans_closed) {
+		return
+	}
+	tm.flag.Set(trans_closed)
 }
 
 const (
