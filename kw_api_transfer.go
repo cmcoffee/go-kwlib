@@ -22,7 +22,7 @@ var ErrNoUploadID = fmt.Errorf("Upload ID not found.")
 var ErrUploadNoResp = fmt.Errorf("Unexpected empty resposne from server.")
 
 // Returns chunk_size, total number of chunks and last chunk size.
-func (K *KWAPI) getChunkInfo(total_size int64) (total_chunks int64) {
+func (K *KWAPI) Chunks(total_size int64) (total_chunks int64) {
 	chunk_size := K.MaxChunkSize
 
 	if chunk_size == 0 || chunk_size > kw_chunk_size_max {
@@ -102,7 +102,7 @@ func (W *web_downloader) Seek(offset int64, whence int) (int64, error) {
 }
 
 // Perform External Download from a remote request.
-func (S *KWSession) WebDownload(req *http.Request) ReadSeekCloser {
+func (S *KWSession) Download(req *http.Request) ReadSeekCloser {
 	req.Header.Set("Content-Type", "application/octet-stream")
 
 	if S.AgentString == NONE {
@@ -117,41 +117,6 @@ func (S *KWSession) WebDownload(req *http.Request) ReadSeekCloser {
 		client:          client.Client,
 		request_timeout: S.RequestTimeout,
 	}
-}
-
-// Creates a new upload for a folder.
-func (S *KWSession) NewUpload(folder_id int, filename string, file_size int64) (int, error) {
-	var upload struct {
-		ID int `json:"id"`
-	}
-
-	if err := S.Call(APIRequest{
-		APIVer: 5,
-		Method: "POST",
-		Path:   SetPath("/rest/folders/%d/actions/initiateUpload", folder_id),
-		Params: SetParams(PostJSON{"filename": filename, "totalSize": file_size, "totalChunks": S.getChunkInfo(file_size)}, Query{"returnEntity": true}),
-		Output: &upload,
-	}); err != nil {
-		return -1, err
-	}
-	return upload.ID, nil
-}
-
-// Create a new file version for an existing file.
-func (S *KWSession) NewVersion(file_id int, filename string, file_size int64) (int, error) {
-	var upload struct {
-		ID int `json:"id"`
-	}
-
-	if err := S.Call(APIRequest{
-		Method: "POST",
-		Path:   SetPath("/rest/files/%d/actions/initiateUpload", file_id),
-		Params: SetParams(PostJSON{"filename": filename, "totalSize": file_size, "totalChunks": S.getChunkInfo(file_size)}, Query{"returnEntity": true}),
-		Output: &upload,
-	}); err != nil {
-		return -1, err
-	}
-	return upload.ID, nil
 }
 
 // Multipart filestreamer
@@ -210,6 +175,41 @@ func (s *streamReadCloser) Read(p []byte) (n int, err error) {
 	}
 	n, err = s.w_buff.Read(p)
 	return
+}
+
+// Creates a new upload for a folder.
+func (S *KWSession) NewUpload(folder_id int, filename string, file_size int64) (int, error) {
+	var upload struct {
+		ID int `json:"id"`
+	}
+
+	if err := S.Call(APIRequest{
+		APIVer: 5,
+		Method: "POST",
+		Path:   SetPath("/rest/folders/%d/actions/initiateUpload", folder_id),
+		Params: SetParams(PostJSON{"filename": filename, "totalSize": file_size, "totalChunks": S.Chunks(file_size)}, Query{"returnEntity": true}),
+		Output: &upload,
+	}); err != nil {
+		return -1, err
+	}
+	return upload.ID, nil
+}
+
+// Create a new file version for an existing file.
+func (S *KWSession) NewVersion(file_id int, filename string, file_size int64) (int, error) {
+	var upload struct {
+		ID int `json:"id"`
+	}
+
+	if err := S.Call(APIRequest{
+		Method: "POST",
+		Path:   SetPath("/rest/files/%d/actions/initiateUpload", file_id),
+		Params: SetParams(PostJSON{"filename": filename, "totalSize": file_size, "totalChunks": S.Chunks(file_size)}, Query{"returnEntity": true}),
+		Output: &upload,
+	}); err != nil {
+		return -1, err
+	}
+	return upload.ID, nil
 }
 
 // Uploads file from specific local path, uploads in chunks, allows resume.
@@ -366,18 +366,4 @@ func (s KWSession) Upload(filename string, upload_id int, source_reader ReadSeek
 	}
 
 	return resp_data.ID, nil
-}
-
-// Downloads a file to a specific path
-func (s KWSession) Download(file *KiteObject) (io.ReadSeeker, error) {
-	if file == nil {
-		return nil, fmt.Errorf("nil file object provided.")
-	}
-
-	req, err := s.NewRequest("GET", SetPath("/rest/files/%d/content", file.ID), 7)
-	if err != nil {
-		return nil, err
-	}
-
-	return TransferMonitor(file.Name, file.Size, RightToLeft, s.WebDownload(req)), nil
 }

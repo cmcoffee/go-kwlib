@@ -72,10 +72,6 @@ var ErrNoUploadID = fmt.Errorf("Upload ID not found.")
 ```
 
 ```go
-var ErrNotFound = errors.New("Requested item not found.")
-```
-
-```go
 var ErrUploadNoResp = fmt.Errorf("Unexpected empty resposne from server.")
 ```
 
@@ -360,22 +356,6 @@ func ScanPath(parent_folder string) (folders []string, files []FileInfo)
 ```
 Scans parent_folder for all subfolders and files.
 
-#### type GetUsers
-
-```go
-type GetUsers struct {
-}
-```
-
-Get Users
-
-#### func (*GetUsers) Next
-
-```go
-func (T *GetUsers) Next() (users []KiteUser, err error)
-```
-Return a set of users to process.
-
 #### type KWAPI
 
 ```go
@@ -401,6 +381,13 @@ type KWAPI struct {
 ```go
 func (K *KWAPI) Authenticate(username string) (*KWSession, error)
 ```
+
+#### func (*KWAPI) Chunks
+
+```go
+func (K *KWAPI) Chunks(total_size int64) (total_chunks int64)
+```
+Returns chunk_size, total number of chunks and last chunk size.
 
 #### func (*KWAPI) ClientSecret
 
@@ -522,47 +509,12 @@ Call handler which allows for easier getting of multiple-object arrays. An
 offset of -1 will provide all results, any positive offset will only return the
 requested results.
 
-#### func (KWSession) Download
+#### func (*KWSession) Download
 
 ```go
-func (s KWSession) Download(file *KiteObject) (io.ReadSeeker, error)
+func (S *KWSession) Download(req *http.Request) ReadSeekCloser
 ```
-Downloads a file to a specific path
-
-#### func (KWSession) Find
-
-```go
-func (s KWSession) Find(folder_id int, path string, params ...interface{}) (result KiteObject, err error)
-```
-Find item in folder, using folder path, if folder_id > 0, start search there.
-
-#### func (KWSession) FolderContents
-
-```go
-func (s KWSession) FolderContents(folder_id int, params ...interface{}) (children []KiteObject, err error)
-```
-Returns all items with listed folder_id.
-
-#### func (KWSession) GetUserCount
-
-```go
-func (s KWSession) GetUserCount(params ...interface{}) (users int, err error)
-```
-Get total count of users.
-
-#### func (KWSession) GetUsers
-
-```go
-func (s KWSession) GetUsers(params ...interface{}) *GetUsers
-```
-Admin EAPI endpoint to pull all users matching parameters.
-
-#### func (KWSession) MyUser
-
-```go
-func (s KWSession) MyUser() (user KiteUser, err error)
-```
-Retrieve my user info.
+Perform External Download from a remote request.
 
 #### func (KWSession) NewClient
 
@@ -592,117 +544,12 @@ func (S *KWSession) NewVersion(file_id int, filename string, file_size int64) (i
 ```
 Create a new file version for an existing file.
 
-#### func (KWSession) TopFolders
-
-```go
-func (s KWSession) TopFolders(params ...interface{}) (folders []KiteObject, err error)
-```
-Get list of all top folders
-
 #### func (KWSession) Upload
 
 ```go
 func (s KWSession) Upload(filename string, upload_id int, source_reader ReadSeekCloser) (int, error)
 ```
 Uploads file from specific local path, uploads in chunks, allows resume.
-
-#### func (*KWSession) WebDownload
-
-```go
-func (S *KWSession) WebDownload(req *http.Request) ReadSeekCloser
-```
-Perform External Download from a remote request.
-
-#### type KiteLinks
-
-```go
-type KiteLinks struct {
-	Relationship string `json:"rel"`
-	Entity       string `json:"entity"`
-	ID           int    `json:"id"`
-	URL          string `json:"href"`
-}
-```
-
-Kiteworks Links Data
-
-#### type KiteObject
-
-```go
-type KiteObject struct {
-	Type            string         `json:"type"`
-	Status          string         `json:"status"`
-	ID              int            `json:"id"`
-	Name            string         `json:"name"`
-	Description     string         `json:"description"`
-	Created         string         `json:"created"`
-	Modified        string         `json:"modified"`
-	ClientCreated   string         `json:"clientCreated"`
-	ClientModified  string         `json:"clientModified"`
-	Deleted         bool           `json:"deleted"`
-	PermDeleted     bool           `json:"permDeleted"`
-	Expire          interface{}    `json:"expire"`
-	Path            string         `json:"path"`
-	ParentID        int            `json:"parentId"`
-	UserID          int            `json:"userId"`
-	Permalink       string         `json:"permalink"`
-	Locked          int            `json:"locked"`
-	Fingerprint     string         `json:"fingerprint"`
-	Size            int64          `json:"size"`
-	Mime            string         `json:"mime"`
-	Quarantined     bool           `json:"quarantined"`
-	DLPLocked       bool           `json:"dlpLocked"`
-	FileLifetime    int            `json:"fileLifetime"`
-	MailID          int            `json:"mail_id"`
-	Links           []KiteLinks    `json:"links"`
-	CurrentUserRole KitePermission `json:"currentUserRole"`
-}
-```
-
-KiteFile/Folder/Attachment
-
-#### func (*KiteObject) Expiry
-
-```go
-func (K *KiteObject) Expiry() time.Time
-```
-Returns the Expiration in time.Time.
-
-#### type KitePermission
-
-```go
-type KitePermission struct {
-	ID         int    `json:"id"`
-	Name       string `json:"name"`
-	Rank       int    `json:"rank"`
-	Modifiable bool   `json:"modifiable"`
-	Disabled   bool   `json:"disabled"`
-}
-```
-
-Permission information
-
-#### type KiteUser
-
-```go
-type KiteUser struct {
-	ID          int    `json:"id"`
-	Active      bool   `json:"active"`
-	Deactivated bool   `json:"deactivated"`
-	Suspended   bool   `json:"suspended"`
-	BaseDirID   int    `json:"basedirId"`
-	Deleted     bool   `json:"deleted"`
-	Email       string `json:"email"`
-	MyDirID     int    `json:"mydirId"`
-	Name        string `json:"name"`
-	SyncDirID   int    `json:"syncdirId"`
-	UserTypeID  int    `json:"userTypeId"`
-	Verified    bool   `json:"verified"`
-	Internal    bool   `json:"internal"`
-}
-```
-
-Kiteworks User Data
 
 #### type PostForm
 
