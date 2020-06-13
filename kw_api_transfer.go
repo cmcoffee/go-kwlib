@@ -3,7 +3,7 @@ package kwlib
 import (
 	"bytes"
 	"fmt"
-	"github.com/cmcoffee/go-iotimeout"
+	"github.com/cmcoffee/go-snuglib/iotimeout"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -85,10 +85,11 @@ func (W *web_downloader) Read(p []byte) (n int, err error) {
 		}
 	}
 	n, err = W.resp.Body.Read(p)
-	if err != nil {
-		defer W.resp.Body.Close()
-	}
 	return
+}
+
+func (W *web_downloader) Close() error {
+	return W.resp.Body.Close()
 }
 
 func (W *web_downloader) Seek(offset int64, whence int) (int64, error) {
@@ -101,7 +102,7 @@ func (W *web_downloader) Seek(offset int64, whence int) (int64, error) {
 }
 
 // Perform External Download from a remote request.
-func (S *KWSession) WebDownload(req *http.Request) io.ReadSeeker {
+func (S *KWSession) WebDownload(req *http.Request) ReadSeekCloser {
 	req.Header.Set("Content-Type", "application/octet-stream")
 
 	if S.AgentString == NONE {
@@ -212,7 +213,7 @@ func (s *streamReadCloser) Read(p []byte) (n int, err error) {
 }
 
 // Uploads file from specific local path, uploads in chunks, allows resume.
-func (s KWSession) Upload(filename string, upload_id int, source_reader io.ReadSeeker) (int, error) {
+func (s KWSession) Upload(filename string, upload_id int, source_reader ReadSeekCloser) (int, error) {
 	type upload_data struct {
 		ID             int    `json:"id"`
 		TotalSize      int64  `json:"totalSize"`
@@ -252,7 +253,7 @@ func (s KWSession) Upload(filename string, upload_id int, source_reader io.ReadS
 	ChunkSize := upload_record.TotalSize / upload_record.TotalChunks
 	ChunkIndex := upload_record.UploadedChunks
 
-	src := TransferMonitor(filename, total_bytes, source_reader)
+	src := TransferMonitor(filename, total_bytes, LeftToRight, source_reader)
 
 	if ChunkIndex > 0 {
 		if upload_record.UploadedSize > 0 && upload_record.UploadedChunks > 0 {
@@ -368,27 +369,15 @@ func (s KWSession) Upload(filename string, upload_id int, source_reader io.ReadS
 }
 
 // Downloads a file to a specific path
-func (s KWSession) Download(file_id int) (io.ReadSeeker, error) {
-	var file_info struct {
-		Name string `json:"name"`
-		Size int64  `json:"size"`
+func (s KWSession) Download(file *KiteObject) (io.ReadSeeker, error) {
+	if file == nil {
+		return nil, fmt.Errorf("nil file object provided.")
 	}
 
-	if err := s.Call(APIRequest{
-		Method: "GET",
-		Path:   SetPath("/rest/files/%d", file_id),
-		Output: &file_info,
-	}); err != nil {
-		return nil, err
-	}
-
-	filename := file_info.Name
-	total_bytes := file_info.Size
-
-	req, err := s.NewRequest("GET", SetPath("/rest/files/%d/content", file_id), 7)
+	req, err := s.NewRequest("GET", SetPath("/rest/files/%d/content", file.ID), 7)
 	if err != nil {
 		return nil, err
 	}
 
-	return TransferMonitor(filename, total_bytes, s.WebDownload(req)), nil
+	return TransferMonitor(file.Name, file.Size, RightToLeft, s.WebDownload(req)), nil
 }

@@ -6,11 +6,17 @@
 package kwlib
 
 import (
+	"archive/zip"
+	"compress/flate"
+	"crypto/md5"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
-	"github.com/cmcoffee/go-ask"
-	"github.com/cmcoffee/go-kvliter"
-	"github.com/cmcoffee/go-nfo"
+	"github.com/cmcoffee/go-snuglib/bitflag"
+	"github.com/cmcoffee/go-snuglib/kvlite"
+	"github.com/cmcoffee/go-snuglib/nfo"
+	"io"
+	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,60 +30,42 @@ const (
 	SLASH = string(os.PathSeparator)
 )
 
-func init() {
-	nfo.SetTimestamp(nfo.AUX, false)
-}
-
 // Import from go-nfo.
 var (
-	Log        = nfo.Log
-	Fatal      = nfo.Fatal
-	Notice     = nfo.Notice
-	Flash      = nfo.Flash
-	Stdout     = nfo.Stdout
-	Warn       = nfo.Warn
-	Defer      = nfo.Defer
-	Debug      = nfo.Debug
-	Snoop      = nfo.Aux
-	ForSecret  = ask.ForSecret
-	ForInput   = ask.ForInput
-	Exit       = nfo.Exit
-	PleaseWait = nfo.PleaseWait
-	Stderr     = nfo.Stderr
-	Confirm    = nfo.Confirm
-	HideTS     = nfo.HideTS
-	LocalDefer = nfo.LocalDefer
+	Log             = nfo.Log
+	Fatal           = nfo.Fatal
+	Notice          = nfo.Notice
+	Flash           = nfo.Flash
+	Stdout          = nfo.Stdout
+	Warn            = nfo.Warn
+	Defer           = nfo.Defer
+	Debug           = nfo.Debug
+	Snoop           = nfo.Aux
+	GetSecret       = nfo.GetSecret
+	GetInput        = nfo.GetInput
+	Exit            = nfo.Exit
+	PleaseWait      = nfo.PleaseWait
+	Stderr          = nfo.Stderr
+	GetConfirm      = nfo.GetConfirm
+	HideTS          = nfo.HideTS
+	ShowTS          = nfo.ShowTS
+	ProgressBar     = nfo.ProgressBar
+	TransferMonitor = nfo.TransferMonitor
+	Path            = filepath.Clean
+	LeftToRight     = nfo.LeftToRight
+	RightToLeft     = nfo.RightToLeft
+	NoRate          = nfo.NoRate
 )
 
-func ShowTS() {
-	nfo.ShowTS()
-	nfo.SetTimestamp(nfo.AUX, false)
-}
-
-// Atomic BitFlag
-type BitFlag int64
-
-func (B *BitFlag) Has(flag int) bool {
-	if atomic.LoadInt64((*int64)(B))&int64(flag) != 0 {
-		return true
-	}
-	return false
-}
-
-// Set BitFlag
-func (B *BitFlag) Set(flag int) {
-	atomic.StoreInt64((*int64)(B), atomic.LoadInt64((*int64)(B))|int64(flag))
-}
-
-// Unset BitFlag
-func (B *BitFlag) Unset(flag int) {
-	atomic.StoreInt64((*int64)(B), atomic.LoadInt64((*int64)(B))&^int64(flag))
-}
+type (
+	ReadSeekCloser = nfo.ReadSeekCloser
+	BitFlag        = bitflag.BitFlag
+)
 
 // Enable Debug Logging Output
 func EnableDebug() {
 	nfo.SetOutput(nfo.DEBUG, os.Stdout)
-	nfo.LogFileAppend(nfo.ERROR, nfo.DEBUG)
+	nfo.SetFile(nfo.DEBUG, nfo.GetFile(nfo.ERROR))
 }
 
 // Disables Flash from being displayed.
@@ -97,16 +85,14 @@ func Err(input ...interface{}) {
 	nfo.Err(input...)
 }
 
-var Path = filepath.Clean
-
 // Wrapper around go-kvlite.
 type Database struct {
-	db kvliter.Store
+	db kvlite.Store
 }
 
 // Opens go-kvlite sqlite database.
 func OpenDatabase(file string, padlock ...byte) (*Database, error) {
-	db, err := kvliter.Open(file, padlock...)
+	db, err := kvlite.Open(file, padlock...)
 	if err != nil {
 		return nil, err
 	}
@@ -129,17 +115,17 @@ func SecureDatabase(file string) (*Database, error) {
 		return nil
 	}
 
-	db, err := kvliter.Open(file, get_mac_addr()[0:]...)
+	db, err := kvlite.Open(file, get_mac_addr()[0:]...)
 	if err != nil {
-		if err == kvliter.ErrBadPadlock {
+		if err == kvlite.ErrBadPadlock {
 			Notice("Hardware changes detected, you will need to reauthenticate.")
-			if err := kvliter.CryptReset(file); err != nil {
+			if err := kvlite.CryptReset(file); err != nil {
 				return nil, err
 			}
 		} else {
 			return nil, err
 		}
-		db, err = kvliter.Open(file, get_mac_addr()[0:]...)
+		db, err = kvlite.Open(file, get_mac_addr()[0:]...)
 		if err != nil {
 			return nil, err
 		}
@@ -149,7 +135,7 @@ func SecureDatabase(file string) (*Database, error) {
 
 // Open a memory-only go-kvlite store.
 func OpenCache() *Database {
-	db := kvliter.MemStore()
+	db := kvlite.MemStore()
 	return &Database{db}
 }
 
@@ -211,6 +197,153 @@ func Critical(err error) {
 	if err != nil {
 		Fatal(err)
 	}
+}
+
+// Splits path up
+func SplitPath(path string) (folder_path []string) {
+	if strings.Contains(path, "/") {
+		folder_path = strings.Split(path, "/")
+	} else {
+		folder_path = strings.Split(path, "\\")
+	}
+	if len(folder_path) == 0 {
+		folder_path = append(folder_path, path)
+	}
+	return
+}
+
+type FileInfo struct {
+	Info os.FileInfo
+	string
+}
+
+// Scans parent_folder for all subfolders and files.
+func ScanPath(parent_folder string) (folders []string, files []FileInfo) {
+	folders = []string{filepath.Clean(parent_folder)}
+
+	var n int
+	nextFolder := func() (output string) {
+		if n < len(folders) {
+			output = folders[n]
+			n++
+			return
+		}
+		return NONE
+	}
+
+	files = make([]FileInfo, 0)
+
+	for {
+		folder := nextFolder()
+		if folder == NONE {
+			break
+		}
+		data, err := ioutil.ReadDir(folder)
+		if err != nil && !os.IsNotExist(err) {
+			Err(err)
+			continue
+		}
+		for _, finfo := range data {
+			if finfo.IsDir() {
+				folders = append(folders, fmt.Sprintf("%s%s%s", folder, SLASH, finfo.Name()))
+			} else {
+				files = append(files, FileInfo{finfo, fmt.Sprintf("%s%s%s", folder, SLASH, finfo.Name())})
+			}
+		}
+	}
+
+	return folders, files
+}
+
+// MD5Sum function for checking files against appliance.
+func MD5Sum(filename string) (sum string, err error) {
+	checkSum := md5.New()
+	file, err := os.Open(filename)
+	if err != nil {
+		return
+	}
+
+	var (
+		o int64
+		n int
+		r int
+	)
+
+	for tmp := make([]byte, 16384); ; {
+		r, err = file.ReadAt(tmp, o)
+
+		if err != nil && err != io.EOF {
+			return NONE, err
+		}
+
+		if r == 0 {
+			break
+		}
+
+		tmp = tmp[0:r]
+		n, err = checkSum.Write(tmp)
+		if err != nil {
+			return NONE, err
+		}
+		o = o + int64(n)
+	}
+
+	if err != nil && err != io.EOF {
+		return NONE, err
+	}
+
+	md5sum := checkSum.Sum(nil)
+
+	s := make([]byte, hex.EncodedLen(len(md5sum)))
+	hex.Encode(s, md5sum)
+
+	return string(s), nil
+}
+
+// Compresses Folder to File
+func CompressFolder(input_folder, dest_file string) (err error) {
+	input_folder, err = filepath.Abs(input_folder)
+	if err != nil {
+		return err
+	}
+	_, files := ScanPath(input_folder)
+
+	f, err := os.OpenFile(dest_file, os.O_CREATE|os.O_RDWR, 0755)
+	if err != nil {
+		return err
+	}
+
+	w := zip.NewWriter(f)
+	w.RegisterCompressor(zip.Deflate, func(out io.Writer) (io.WriteCloser, error) {
+		return flate.NewWriter(out, flate.NoCompression)
+	})
+
+	buf := make([]byte, 4096)
+
+	for _, file := range files {
+		Log("Flattening %s -> %s ...", file.string, dest_file)
+
+		z, err := w.Create(file.string)
+		if err != nil {
+			return err
+		}
+
+		r, err := os.Open(file.string)
+		if err != nil {
+			return err
+		}
+
+		tm := TransferMonitor(fmt.Sprintf("%s", file.Info.Name()), file.Info.Size(), NoRate, r)
+		_, err = io.CopyBuffer(z, tm, buf)
+		tm.Close()
+
+		if err != nil {
+			nfo.Err(err)
+			continue
+		}
+	}
+	w.Close()
+	return
 }
 
 // Generates a random byte slice of length specified.

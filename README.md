@@ -40,20 +40,29 @@ Auth token related errors.
 
 ```go
 var (
-	LogFile    = nfo.File
-	Log        = nfo.Log
-	Fatal      = nfo.Fatal
-	Notice     = nfo.Notice
-	Flash      = nfo.Flash
-	Stdout     = nfo.Stdout
-	Warn       = nfo.Warn
-	Defer      = nfo.Defer
-	Debug      = nfo.Debug
-	Snoop      = nfo.Aux
-	ForSecret  = ask.ForSecret
-	ForInput   = ask.ForInput
-	Exit       = nfo.Exit
-	PleaseWait = nfo.PleaseWait
+	Log             = nfo.Log
+	Fatal           = nfo.Fatal
+	Notice          = nfo.Notice
+	Flash           = nfo.Flash
+	Stdout          = nfo.Stdout
+	Warn            = nfo.Warn
+	Defer           = nfo.Defer
+	Debug           = nfo.Debug
+	Snoop           = nfo.Aux
+	GetSecret       = nfo.GetSecret
+	GetInput        = nfo.GetInput
+	Exit            = nfo.Exit
+	PleaseWait      = nfo.PleaseWait
+	Stderr          = nfo.Stderr
+	GetConfirm      = nfo.GetConfirm
+	HideTS          = nfo.HideTS
+	ShowTS          = nfo.ShowTS
+	ProgressBar     = nfo.ProgressBar
+	TransferMonitor = nfo.TransferMonitor
+	Path            = filepath.Clean
+	LeftToRight     = nfo.LeftToRight
+	RightToLeft     = nfo.RightToLeft
+	NoRate          = nfo.NoRate
 )
 ```
 Import from go-nfo.
@@ -63,17 +72,24 @@ var ErrNoUploadID = fmt.Errorf("Upload ID not found.")
 ```
 
 ```go
-var ErrUploadNoResp = fmt.Errorf("Unexpected empty resposne from server.")
+var ErrNotFound = errors.New("Requested item not found.")
 ```
 
 ```go
-var Path = filepath.Clean
+var ErrUploadNoResp = fmt.Errorf("Unexpected empty resposne from server.")
 ```
 
 ```go
 var SetPath = fmt.Sprintf
 ```
 SetPath shortcut.
+
+#### func  CompressFolder
+
+```go
+func CompressFolder(input_folder, dest_file string) (err error)
+```
+Compresses Folder to File
 
 #### func  Critical
 
@@ -137,6 +153,13 @@ func KWAPIError(err error, input int64) bool
 ```
 Check for specific error code.
 
+#### func  MD5Sum
+
+```go
+func MD5Sum(filename string) (sum string, err error)
+```
+MD5Sum function for checking files against appliance.
+
 #### func  MkDir
 
 ```go
@@ -179,6 +202,13 @@ func Spanner(input interface{}) string
 ```
 Prints arrays for string and int arrays, when submitted to Queries or Form post.
 
+#### func  SplitPath
+
+```go
+func SplitPath(path string) (folder_path []string)
+```
+Splits path up
+
 #### func  WriteKWTime
 
 ```go
@@ -203,30 +233,9 @@ APIRequest model
 #### type BitFlag
 
 ```go
-type BitFlag int64
+type BitFlag = bitflag.BitFlag
 ```
 
-Atomic BitFlag
-
-#### func (*BitFlag) Has
-
-```go
-func (B *BitFlag) Has(flag int) bool
-```
-
-#### func (*BitFlag) Set
-
-```go
-func (B *BitFlag) Set(flag int)
-```
-Set BitFlag
-
-#### func (*BitFlag) Unset
-
-```go
-func (B *BitFlag) Unset(flag int)
-```
-Unset BitFlag
 
 #### type Database
 
@@ -247,9 +256,16 @@ Open a memory-only go-kvlite store.
 #### func  OpenDatabase
 
 ```go
-func OpenDatabase(file string, padlock ...[]byte) (*Database, error)
+func OpenDatabase(file string, padlock ...byte) (*Database, error)
 ```
 Opens go-kvlite sqlite database.
+
+#### func  SecureDatabase
+
+```go
+func SecureDatabase(file string) (*Database, error)
+```
+Opens go-kvlite database using mac address for lock.
 
 #### func (Database) Close
 
@@ -258,52 +274,59 @@ func (d Database) Close()
 ```
 Closes go-kvlite database.
 
+#### func (Database) CountKeys
+
+```go
+func (d Database) CountKeys(table string) int
+```
+Count keys in table.
+
 #### func (Database) CryptSet
 
 ```go
-func (d Database) CryptSet(table string, key, value interface{})
+func (d Database) CryptSet(table, key string, value interface{})
 ```
 Encrypt value to go-kvlie, fatal on error.
+
+#### func (Database) Drop
+
+```go
+func (d Database) Drop(table string)
+```
+DB Wrappers to perform fatal error checks on each call.
 
 #### func (Database) Get
 
 ```go
-func (d Database) Get(table string, key, output interface{}) bool
+func (d Database) Get(table, key string, output interface{}) bool
 ```
 Retrieve value from go-kvlite.
 
-#### func (Database) ListKeys
+#### func (Database) Keys
 
 ```go
-func (d Database) ListKeys(table string) []string
+func (d Database) Keys(table string) []string
 ```
 List keys in go-kvlite.
-
-#### func (Database) ListNKeys
-
-```go
-func (d Database) ListNKeys(table string) []int
-```
-List numeric keys in go-kvlite.
 
 #### func (Database) Set
 
 ```go
-func (d Database) Set(table string, key, value interface{})
+func (d Database) Set(table, key string, value interface{})
 ```
 Save value to go-kvlite.
 
-#### func (Database) Truncate
+#### func (Database) Tables
 
 ```go
-func (d Database) Truncate(table string)
+func (d Database) Tables() []string
 ```
-DB Wrappers to perform fatal error checks on each call.
+List Tables in DB
 
 #### func (Database) Unset
 
 ```go
-func (d Database) Unset(table string, key interface{})
+func (d Database) Unset(table, key string)
 ```
 Delete value from go-kvlite.
 
@@ -320,6 +343,38 @@ Error handler for const errors.
 ```go
 func (e Error) Error() string
 ```
+
+#### type FileInfo
+
+```go
+type FileInfo struct {
+	Info os.FileInfo
+}
+```
+
+
+#### func  ScanPath
+
+```go
+func ScanPath(parent_folder string) (folders []string, files []FileInfo)
+```
+Scans parent_folder for all subfolders and files.
+
+#### type GetUsers
+
+```go
+type GetUsers struct {
+}
+```
+
+Get Users
+
+#### func (*GetUsers) Next
+
+```go
+func (T *GetUsers) Next() (users []KiteUser, err error)
+```
+Return a set of users to process.
 
 #### type KWAPI
 
@@ -346,7 +401,6 @@ type KWAPI struct {
 ```go
 func (K *KWAPI) Authenticate(username string) (*KWSession, error)
 ```
-Set User Credentials for kw_api.
 
 #### func (*KWAPI) ClientSecret
 
@@ -361,6 +415,19 @@ Sets client secret key.
 func (K *KWAPI) Session(username string) KWSession
 ```
 Wraps a session for specfiied user.
+
+#### func (*KWAPI) SetLimiter
+
+```go
+func (K *KWAPI) SetLimiter(max_calls int)
+```
+Configures maximum number of simultaneous api calls.
+
+#### func (*KWAPI) SigAuth
+
+```go
+func (K *KWAPI) SigAuth(username string) (*KWSession, error)
+```
 
 #### func (*KWAPI) Signature
 
@@ -390,6 +457,7 @@ func (c *KWAPIClient) Do(req *http.Request) (resp *http.Response, err error)
 ```go
 type KWAuth struct {
 	AccessToken  string `json:"access_token"`
+	Scope        string `json:"scope"`
 	RefreshToken string `json:"refresh_token"`
 	Expires      int64  `json:"expires_in"`
 }
@@ -445,19 +513,56 @@ func (s KWSession) Call(api_req APIRequest) (err error)
 ```
 kiteworks API Call Wrapper
 
+#### func (KWSession) DataCall
+
+```go
+func (s KWSession) DataCall(req APIRequest, offset, limit int) (err error)
+```
+Call handler which allows for easier getting of multiple-object arrays. An
+offset of -1 will provide all results, any positive offset will only return the
+requested results.
+
 #### func (KWSession) Download
 
 ```go
-func (s KWSession) Download(file_id int) (io.ReadSeeker, error)
+func (s KWSession) Download(file *KiteObject) (io.ReadSeeker, error)
 ```
 Downloads a file to a specific path
 
-#### func (*KWSession) ExtDownload
+#### func (KWSession) Find
 
 ```go
-func (S *KWSession) ExtDownload(req *http.Request) io.ReadSeeker
+func (s KWSession) Find(folder_id int, path string, params ...interface{}) (result KiteObject, err error)
 ```
-Perform External Download from a remote request.
+Find item in folder, using folder path, if folder_id > 0, start search there.
+
+#### func (KWSession) FolderContents
+
+```go
+func (s KWSession) FolderContents(folder_id int, params ...interface{}) (children []KiteObject, err error)
+```
+Returns all items with listed folder_id.
+
+#### func (KWSession) GetUserCount
+
+```go
+func (s KWSession) GetUserCount(params ...interface{}) (users int, err error)
+```
+Get total count of users.
+
+#### func (KWSession) GetUsers
+
+```go
+func (s KWSession) GetUsers(params ...interface{}) *GetUsers
+```
+Admin EAPI endpoint to pull all users matching parameters.
+
+#### func (KWSession) MyUser
+
+```go
+func (s KWSession) MyUser() (user KiteUser, err error)
+```
+Retrieve my user info.
 
 #### func (KWSession) NewClient
 
@@ -487,12 +592,117 @@ func (S *KWSession) NewVersion(file_id int, filename string, file_size int64) (i
 ```
 Create a new file version for an existing file.
 
+#### func (KWSession) TopFolders
+
+```go
+func (s KWSession) TopFolders(params ...interface{}) (folders []KiteObject, err error)
+```
+Get list of all top folders
+
 #### func (KWSession) Upload
 
 ```go
-func (s KWSession) Upload(filename string, upload_id int, source io.ReadSeeker) (int, error)
+func (s KWSession) Upload(filename string, upload_id int, source_reader ReadSeekCloser) (int, error)
 ```
 Uploads file from specific local path, uploads in chunks, allows resume.
+
+#### func (*KWSession) WebDownload
+
+```go
+func (S *KWSession) WebDownload(req *http.Request) ReadSeekCloser
+```
+Perform External Download from a remote request.
+
+#### type KiteLinks
+
+```go
+type KiteLinks struct {
+	Relationship string `json:"rel"`
+	Entity       string `json:"entity"`
+	ID           int    `json:"id"`
+	URL          string `json:"href"`
+}
+```
+
+Kiteworks Links Data
+
+#### type KiteObject
+
+```go
+type KiteObject struct {
+	Type            string         `json:"type"`
+	Status          string         `json:"status"`
+	ID              int            `json:"id"`
+	Name            string         `json:"name"`
+	Description     string         `json:"description"`
+	Created         string         `json:"created"`
+	Modified        string         `json:"modified"`
+	ClientCreated   string         `json:"clientCreated"`
+	ClientModified  string         `json:"clientModified"`
+	Deleted         bool           `json:"deleted"`
+	PermDeleted     bool           `json:"permDeleted"`
+	Expire          interface{}    `json:"expire"`
+	Path            string         `json:"path"`
+	ParentID        int            `json:"parentId"`
+	UserID          int            `json:"userId"`
+	Permalink       string         `json:"permalink"`
+	Locked          int            `json:"locked"`
+	Fingerprint     string         `json:"fingerprint"`
+	Size            int64          `json:"size"`
+	Mime            string         `json:"mime"`
+	Quarantined     bool           `json:"quarantined"`
+	DLPLocked       bool           `json:"dlpLocked"`
+	FileLifetime    int            `json:"fileLifetime"`
+	MailID          int            `json:"mail_id"`
+	Links           []KiteLinks    `json:"links"`
+	CurrentUserRole KitePermission `json:"currentUserRole"`
+}
+```
+
+KiteFile/Folder/Attachment
+
+#### func (*KiteObject) Expiry
+
+```go
+func (K *KiteObject) Expiry() time.Time
+```
+Returns the Expiration in time.Time.
+
+#### type KitePermission
+
+```go
+type KitePermission struct {
+	ID         int    `json:"id"`
+	Name       string `json:"name"`
+	Rank       int    `json:"rank"`
+	Modifiable bool   `json:"modifiable"`
+	Disabled   bool   `json:"disabled"`
+}
+```
+
+Permission information
+
+#### type KiteUser
+
+```go
+type KiteUser struct {
+	ID          int    `json:"id"`
+	Active      bool   `json:"active"`
+	Deactivated bool   `json:"deactivated"`
+	Suspended   bool   `json:"suspended"`
+	BaseDirID   int    `json:"basedirId"`
+	Deleted     bool   `json:"deleted"`
+	Email       string `json:"email"`
+	MyDirID     int    `json:"mydirId"`
+	Name        string `json:"name"`
+	SyncDirID   int    `json:"syncdirId"`
+	UserTypeID  int    `json:"userTypeId"`
+	Verified    bool   `json:"verified"`
+	Internal    bool   `json:"internal"`
+}
+```
+
+Kiteworks User Data
 
 #### type PostForm
 
@@ -518,44 +728,12 @@ type Query map[string]interface{}
 
 Add Query params to KWAPI request.
 
-#### type TMonitor
+#### type ReadSeekCloser
 
 ```go
-type TMonitor struct {
-}
+type ReadSeekCloser = nfo.ReadSeekCloser
 ```
 
-Transfer Monitor
-
-#### func  TransferMonitor
-
-```go
-func TransferMonitor(name string, total_sz int64) *TMonitor
-```
-Add Transfer to transferDisplay. Parameters are "name" displayed for file
-transfer, "limit_sz" for when to pause transfer (aka between calls/chunks), and
-"total_sz" the total size of the transfer.
-
-#### func (*TMonitor) Close
-
-```go
-func (tm *TMonitor) Close()
-```
-Removes TMonitor from transferDisplay.
-
-#### func (*TMonitor) Offset
-
-```go
-func (t *TMonitor) Offset(current_sz int64)
-```
-Sets the offset to the size already tansfered.
-
-#### func (*TMonitor) RecordTransfer
-
-```go
-func (t *TMonitor) RecordTransfer(current_sz int)
-```
-Update transfered bytes
 
 #### type TokenStore
 

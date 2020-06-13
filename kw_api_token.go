@@ -15,8 +15,16 @@ import (
 	"time"
 )
 
-// Set User Credentials for kw_api.
 func (K *KWAPI) Authenticate(username string) (*KWSession, error) {
+	return K.authenticate(username, true)
+}
+
+func (K *KWAPI) SigAuth(username string) (*KWSession, error) {
+	return K.authenticate(username, false)
+}
+
+// Set User Credentials for kw_api.
+func (K *KWAPI) authenticate(username string, permit_change bool) (*KWSession, error) {
 	K.testTokenStore()
 
 	if username != NONE {
@@ -46,43 +54,64 @@ func (K *KWAPI) Authenticate(username string) (*KWSession, error) {
 		}
 	}
 
+	var report_success bool
+
 	if K.secrets.signature_key == nil {
-		Stdout("\n*** %s Authentication ***\n\n", K.Server)
+		Stdout("[ %s authentication ]\n\n", K.Server)
 		for {
 			if username == NONE {
-				username = strings.ToLower(ForInput("User: "))
+				username = strings.ToLower(GetInput("-> username: "))
 			} else {
-				Stdout("User: %s", username)
+				Stdout("-> username: %s", username)
 			}
-			password := ForSecret("Password: ")
-			Stdout("\n\r")
+			report_success = true
+			password := GetSecret("-> password: ")
 
 			auth, err := K.newToken(username, password)
 			if err != nil {
-				username = NONE
+				if permit_change {
+					username = NONE
+				}
+				Stdout("\n\n")
 				Err(fmt.Sprintf("%s\n\n", err.Error()))
 				continue
 			} else {
 				session := K.Session(username)
 				if err := K.TokenStore.Save(username, auth); err != nil {
 					return &session, err
+				} else {
+					if report_success {
+						Stdout("\n\n<- %s reports success!", K.Server)
+					}
 				}
 				return &session, nil
 			}
 		}
 	} else {
+		var shown bool
 		for {
 			if username == NONE {
-				Stdout("\n*** %s API Configuration ***\n\n", K.Server)
-				username = strings.ToLower(ForInput("User: "))
+				if !shown {
+					Stdout("[ %s setup ]\n\n", K.Server)
+					shown = true
+				}
+				report_success = true
+				username = strings.ToLower(GetInput("-> kw username: "))
 			}
 
 			auth, err := K.newToken(username, NONE)
 			if err != nil {
 				username = NONE
-				Stdout("\n")
+				if !permit_change {
+					return nil, err
+				}
+				Stdout(NONE)
 				Err(fmt.Sprintf("%s\n\n", err.Error()))
 				continue
+			} else {
+				if report_success {
+					Stdout("<- %s reports success!", K.Server)
+				}
 			}
 
 			session := K.Session(username)
@@ -128,7 +157,7 @@ func (s KWSession) setToken(req *http.Request, clear bool) (err error) {
 				return err
 			}
 		} else {
-			user, err := s.Authenticate(s.Username)
+			user, err := s.authenticate(s.Username, false)
 			if err != nil {
 				return err
 			}

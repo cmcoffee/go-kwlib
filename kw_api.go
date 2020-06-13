@@ -7,13 +7,12 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"github.com/cmcoffee/go-iotimeout"
+	"github.com/cmcoffee/go-snuglib/iotimeout"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -143,8 +142,73 @@ var SetPath = fmt.Sprintf
 
 // Creates Param for KWAPI post
 func SetParams(vars ...interface{}) (output []interface{}) {
-	for _, v := range vars {
-		output = append(output, v)
+	if len(vars) == 0 {
+		return nil
+	}
+	var (
+		post_json PostJSON
+		query     Query
+		form      PostForm
+	)
+
+	process_vars := func(vars interface{}) {
+		switch x := vars.(type) {
+		case Query:
+			if query == nil {
+				query = x
+			} else {
+				for key, val := range x {
+					query[key] = val
+				}
+			}
+		case PostJSON:
+			if post_json == nil {
+				post_json = x
+			} else {
+				for key, val := range x {
+					post_json[key] = val
+				}
+			}
+		case PostForm:
+			if form == nil {
+				form = x
+			} else {
+				for key, val := range x {
+					form[key] = val
+				}
+			}
+		}
+	}
+
+	for {
+		tmp := vars[0:0]
+		for _, v := range vars {
+			switch val := v.(type) {
+			case []interface{}:
+				for _, elem := range val {
+					tmp = append(tmp[0:], elem)
+				}
+			case nil:
+				continue
+			default:
+				process_vars(val)
+
+			}
+		}
+		if len(tmp) == 0 {
+			break
+		}
+		vars = tmp
+	}
+
+	if post_json != nil {
+		output = append(output, post_json)
+	}
+	if query != nil {
+		output = append(output, query)
+	}
+	if form != nil {
+		output = append(output, form)
 	}
 	return
 }
@@ -242,14 +306,14 @@ func (K *KWAPI) decodeJSON(resp *http.Response, output interface{}) (err error) 
 
 	if K.Snoop {
 		if output == nil {
-			Stdout("<-- RESPONSE STATUS: %s", resp.Status)
+			Snoop("<-- RESPONSE STATUS: %s", resp.Status)
 			dec := json.NewDecoder(resp.Body)
 			dec.Decode(&snoop_output)
 			o, _ := json.MarshalIndent(&snoop_output, "", "  ")
-			fmt.Fprintf(os.Stdout, "%s\n", string(o))
+			Snoop("%s\n", string(o))
 			return nil
 		} else {
-			Stdout("<-- RESPONSE STATUS: %s", resp.Status)
+			Snoop("<-- RESPONSE STATUS: %s", resp.Status)
 			body = io.TeeReader(resp.Body, &snoop_buffer)
 		}
 	} else {
@@ -304,7 +368,7 @@ func snoop_request(body io.Reader) error {
 		}
 	}
 	o, _ := json.MarshalIndent(&snoop_generic, "", "  ")
-	Snoop("%s\n", string(o))
+	Snoop("<-- RESPONSE BODY: \n%s\n", string(o))
 	return nil
 }
 
@@ -370,7 +434,7 @@ func (s KWSession) Call(api_req APIRequest) (err error) {
 	}
 
 	if s.Snoop {
-		Snoop("\n[kiteworks]: %s", s.Username)
+		Snoop("[kiteworks snoop]: %s", s.Username)
 		Snoop("--> METHOD: \"%s\" PATH: \"%s\"", strings.ToUpper(api_req.Method), api_req.Path)
 	}
 
@@ -407,6 +471,8 @@ func (s KWSession) Call(api_req APIRequest) (err error) {
 				}
 			}
 			req.URL.RawQuery = q.Encode()
+		case nil:
+			continue
 		default:
 			return fmt.Errorf("Unknown request exception.")
 		}
@@ -430,8 +496,8 @@ func (s KWSession) Call(api_req APIRequest) (err error) {
 						return nil
 					}
 				}
-				Critical(fmt.Errorf("Token is no longer valid: %s", orig_err.Error()))
 				s.TokenStore.Delete(s.Username)
+				Critical(fmt.Errorf("Token is no longer valid: %s", orig_err.Error()))
 			}
 			return s.setToken(req, KWAPIError(err, TOKEN_ERR))
 		}
@@ -440,13 +506,20 @@ func (s KWSession) Call(api_req APIRequest) (err error) {
 		client := s.NewClient()
 		resp, err = client.Do(req)
 		if err != nil && KWAPIError(err, ERR_INTERNAL_SERVER_ERROR|TOKEN_ERR) {
-			Debug("(CALL ERROR) %s -> %s: %s (%d/%d)", s.Username, api_req.Path, err.Error(), i+1, s.Retries+1)
-			if err := reAuth(&s, req, err); err != nil {
-				return err
+			if KWAPIError(err, TOKEN_ERR) {
+				if err := reAuth(&s, req, err); err != nil {
+					return err
+				}
 			}
+			Debug("(CALL ERROR) %s -> %s: %s (%d/%d)", s.Username, api_req.Path, err.Error(), i+1, s.Retries+1)
 			time.Sleep((time.Second * time.Duration(i+1)) * time.Duration(i+1))
 			continue
 		} else if err != nil {
+			if !IsKWError(err) {
+				Warn("%s -> %s: %s (%d/%d)", s.Username, api_req.Path, err.Error(), i+1, s.Retries+1)
+				time.Sleep((time.Second * time.Duration(i+1)) * time.Duration(i+1))
+				continue
+			}
 			break
 		}
 
@@ -460,6 +533,83 @@ func (s KWSession) Call(api_req APIRequest) (err error) {
 			continue
 		} else {
 			break
+		}
+	}
+	return
+}
+
+// Call handler which allows for easier getting of multiple-object arrays.
+// An offset of -1 will provide all results, any positive offset will only return the requested results.
+func (s KWSession) DataCall(req APIRequest, offset, limit int) (err error) {
+
+	output := req.Output
+	params := req.Params
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	var managed bool
+
+	// If we're provided a non-negative offset, get only results requested.
+	if offset < 0 {
+		offset = 0
+	} else {
+		managed = true
+	}
+
+	var o struct {
+		Data interface{} `json:"data"`
+	}
+
+	o.Data = req.Output
+
+	var tmp []map[string]interface{}
+
+	var enc_buff bytes.Buffer
+	enc := json.NewEncoder(&enc_buff)
+	dec := json.NewDecoder(&enc_buff)
+
+	// Get response, decode it to a generic array of map[string]interface{}.
+	// Stack responses, them, and then encode the stack, then decode to original request.
+	for {
+		req.Params = SetParams(params, Query{"limit": limit, "offset": offset})
+		req.Output = &o
+		if err = s.Call(req); err != nil {
+			return err
+		}
+		// Decode the results we get, convert to []map[string]interface{}, and stack results.
+		if o.Data != nil {
+			enc_buff.Reset()
+			err := enc.Encode(o.Data)
+			if err != nil {
+				return err
+			}
+			var t []map[string]interface{}
+			err = dec.Decode(&t)
+			if err != nil {
+				return err
+			}
+			tmp = append(tmp, t[0:]...)
+			if len(t) < limit || managed {
+				break
+			} else {
+				offset = offset + limit
+			}
+		} else {
+			return fmt.Errorf("Something unexpected happened, got an empty response.")
+		}
+	}
+
+	enc_buff.Reset()
+
+	// Take stack of results we recevied and decode it back to the original object.
+	if err := enc.Encode(tmp); err != nil {
+		return err
+	} else {
+		tmp = nil
+		if err = dec.Decode(output); err != nil {
+			return err
 		}
 	}
 	return
