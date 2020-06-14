@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/cmcoffee/go-iotimeout"
+	"github.com/cmcoffee/go-snuglib/iotimeout"
 	"io"
 	"io/ioutil"
 	"net/http"
