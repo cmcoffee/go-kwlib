@@ -55,6 +55,8 @@ var (
 	LeftToRight     = nfo.LeftToRight
 	RightToLeft     = nfo.RightToLeft
 	NoRate          = nfo.NoRate
+	NeedAnswer      = nfo.NeedAnswer
+	PressEnter      = nfo.PressEnter
 )
 
 type (
@@ -75,6 +77,10 @@ func Quiet() {
 
 var error_counter uint32
 
+func ResetErrorCount() {
+	atomic.StoreUint32(&error_counter, 0)
+}
+
 // Returns amount of times Err has been triggered.
 func ErrorCount() uint32 {
 	return atomic.LoadUint32(&error_counter)
@@ -88,6 +94,34 @@ func Err(input ...interface{}) {
 // Wrapper around go-kvlite.
 type Database struct {
 	db kvlite.Store
+}
+
+type Table struct {
+	table kvlite.Table
+}
+
+func (t Table) Set(key string, value interface{}) {
+	Critical(t.table.Set(key, value))
+}
+
+func (t Table) CryptSet(key string, value interface{}) {
+	Critical(t.table.CryptSet(key, value))
+}
+
+func (t Table) Unset(key string) {
+	Critical(t.table.Unset(key))
+}
+
+func (t Table) Keys() []string {
+	keys, err := t.table.Keys()
+	Critical(err)
+	return keys
+}
+
+func (t Table) CountKeys() int {
+	count, err := t.table.CountKeys()
+	Critical(err)
+	return count
 }
 
 // Opens go-kvlite sqlite database.
@@ -159,6 +193,10 @@ func (d Database) Get(table, key string, output interface{}) bool {
 	found, err := d.db.Get(table, key, output)
 	Critical(err)
 	return found
+}
+
+func (d Database) Table(table string) Table {
+	return Table{table: d.db.Table(table)}
 }
 
 // List keys in go-kvlite.

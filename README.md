@@ -63,6 +63,8 @@ var (
 	LeftToRight     = nfo.LeftToRight
 	RightToLeft     = nfo.RightToLeft
 	NoRate          = nfo.NoRate
+	NeedAnswer      = nfo.NeedAnswer
+	PressEnter      = nfo.PressEnter
 )
 ```
 Import from go-nfo.
@@ -183,6 +185,12 @@ Generates a random byte slice of length specified.
 func ReadKWTime(input string) (time.Time, error)
 ```
 Parse Timestamps from kiteworks
+
+#### func  ResetErrorCount
+
+```go
+func ResetErrorCount()
+```
 
 #### func  SetParams
 
@@ -312,6 +320,12 @@ func (d Database) Set(table, key string, value interface{})
 ```
 Save value to go-kvlite.
 
+#### func (Database) Table
+
+```go
+func (d Database) Table(table string) Table
+```
+
 #### func (Database) Tables
 
 ```go
@@ -376,6 +390,12 @@ type KWAPI struct {
 ```
 
 
+#### func (*KWAPI) AuthLoop
+
+```go
+func (K *KWAPI) AuthLoop(username string) (*KWSession, error)
+```
+
 #### func (*KWAPI) Authenticate
 
 ```go
@@ -409,12 +429,6 @@ Wraps a session for specfiied user.
 func (K *KWAPI) SetLimiter(max_calls int)
 ```
 Configures maximum number of simultaneous api calls.
-
-#### func (*KWAPI) SigAuth
-
-```go
-func (K *KWAPI) SigAuth(username string) (*KWSession, error)
-```
 
 #### func (*KWAPI) Signature
 
@@ -581,6 +595,44 @@ Add Query params to KWAPI request.
 type ReadSeekCloser = nfo.ReadSeekCloser
 ```
 
+
+#### type Table
+
+```go
+type Table struct {
+}
+```
+
+
+#### func (Table) CountKeys
+
+```go
+func (t Table) CountKeys() int
+```
+
+#### func (Table) CryptSet
+
+```go
+func (t Table) CryptSet(key string, value interface{})
+```
+
+#### func (Table) Keys
+
+```go
+func (t Table) Keys() []string
+```
+
+#### func (Table) Set
+
+```go
+func (t Table) Set(key string, value interface{})
+```
+
+#### func (Table) Unset
+
+```go
+func (t Table) Unset(key string)
+```
 
 #### type TokenStore
 
