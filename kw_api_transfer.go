@@ -56,6 +56,7 @@ type web_downloader struct {
 	client          *http.Client
 	resp            *http.Response
 	offset          int64
+	trans_limiter   *chan struct{}
 	request_timeout time.Duration
 }
 
@@ -89,6 +90,9 @@ func (W *web_downloader) Read(p []byte) (n int, err error) {
 }
 
 func (W *web_downloader) Close() error {
+	if W.trans_limiter != nil {
+		*W.trans_limiter <- struct{}{}
+	}
 	return W.resp.Body.Close()
 }
 
@@ -116,6 +120,7 @@ func (S *KWSession) Download(req *http.Request) ReadSeekCloser {
 		req:             req,
 		client:          client.Client,
 		request_timeout: S.RequestTimeout,
+		trans_limiter:   &S.trans_limiter,
 	}
 }
 
@@ -214,6 +219,11 @@ func (S *KWSession) NewVersion(file_id int, filename string, file_size int64) (i
 
 // Uploads file from specific local path, uploads in chunks, allows resume.
 func (s KWSession) Upload(filename string, upload_id int, source_reader ReadSeekCloser) (int, error) {
+	if s.trans_limiter != nil {
+		<-s.trans_limiter
+		defer func() { s.trans_limiter<-struct{}{} }()
+	}
+
 	type upload_data struct {
 		ID             int    `json:"id"`
 		TotalSize      int64  `json:"totalSize"`

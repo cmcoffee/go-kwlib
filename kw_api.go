@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -33,16 +32,26 @@ type KWAPI struct {
 	TokenStore     TokenStore    // TokenStore for reading and writing auth tokens securely.
 	secrets        kwapi_secrets // Encrypted config options such as signature token, client secret key.
 	limiter        chan struct{} // Implements a limiter for API calls to appliance.
-	limiter_lock   sync.RWMutex
+	trans_limiter  chan struct{} // Implements a file transfer limiter.
 }
 
 // Configures maximum number of simultaneous api calls.
 func (K *KWAPI) SetLimiter(max_calls int) {
-	K.limiter_lock.Lock()
-	defer K.limiter_lock.Unlock()
-	K.limiter = make(chan struct{}, max_calls)
-	for i := 0; i < max_calls; i++ {
-		K.limiter <- struct{}{}
+	if max_calls <= 0 {
+		max_calls = 1
+	}
+	if K.limiter == nil {
+		K.limiter = make(chan struct{}, max_calls)
+	}
+}
+
+// Configures maximum number of simultaneous file transfers.
+func (K *KWAPI) SetTransferLimiter(max_transfers int) {
+	if max_transfers <= 0 {
+		max_transfers = 1
+	}
+	if K.trans_limiter == nil {
+		K.trans_limiter = make(chan struct{}, max_transfers)
 	}
 }
 
@@ -229,14 +238,6 @@ type KWAPIClient struct {
 }
 
 func (c *KWAPIClient) Do(req *http.Request) (resp *http.Response, err error) {
-	c.session.limiter_lock.RLock()
-	defer c.session.limiter_lock.RUnlock()
-
-	if c.session.limiter != nil {
-		<-c.session.limiter
-		defer func() { c.session.limiter <- struct{}{} }()
-	}
-
 	resp, err = c.Client.Do(req)
 	if err != nil {
 		return nil, err
@@ -293,7 +294,6 @@ func Spanner(input interface{}) string {
 
 // Decodes JSON response body to provided interface.
 func (K *KWAPI) decodeJSON(resp *http.Response, output interface{}) (err error) {
-
 	defer resp.Body.Close()
 
 	var (
@@ -309,8 +309,10 @@ func (K *KWAPI) decodeJSON(resp *http.Response, output interface{}) (err error) 
 			Snoop("<-- RESPONSE STATUS: %s", resp.Status)
 			dec := json.NewDecoder(resp.Body)
 			dec.Decode(&snoop_output)
-			o, _ := json.MarshalIndent(&snoop_output, "", "  ")
-			Snoop("%s\n", string(o))
+			if len(snoop_output) > 0 {
+				o, _ := json.MarshalIndent(&snoop_output, "", "  ")
+					Snoop("<-- RESPONSE BODY: \n%s\n", string(o))
+			}
 			return nil
 		} else {
 			Snoop("<-- RESPONSE STATUS: %s", resp.Status)
@@ -427,6 +429,10 @@ func (s KWSession) NewRequest(method, path string, api_ver int) (req *http.Reque
 
 // kiteworks API Call Wrapper
 func (s KWSession) Call(api_req APIRequest) (err error) {
+	if s.limiter != nil {
+		s.limiter<-struct{}{}
+		defer func() { <-s.limiter }()
+	}
 
 	req, err := s.NewRequest(api_req.Method, api_req.Path, api_req.APIVer)
 	if err != nil {
